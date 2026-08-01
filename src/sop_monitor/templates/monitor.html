@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>AI SOP Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a22;
+    --panel2: #1d222c;
+    --text: #e6e8ee;
+    --muted: #8b93a3;
+    --accent: #6ee7b7;
+    --accent2: #93c5fd;
+    --danger: #f87171;
+    --warn: #fcd34d;
+    --border: #232936;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); margin: 0;
+    font: 14px/1.4 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; min-height: 100vh; }
+  header { display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 22px; border-bottom: 1px solid var(--border); background: #0b0d12; }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: 0.4px; }
+  header .meta { font-size: 12px; color: var(--muted); }
+  header .meta strong { color: var(--text); }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 22px; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px; margin-bottom: 18px; }
+  .section-title { font-size: 12px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.6px; margin: 0 0 10px; }
+  .muted { color: var(--muted); }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .hidden { display: none !important; }
+  a { color: var(--accent2); }
+  button { background: var(--accent2); color: #0b0d12; border: 0; padding: 9px 16px;
+    border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px; }
+  button.secondary { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+
+  .stat { display: inline-flex; gap: 6px; align-items: baseline; margin-right: 16px; font-size: 12px; color: var(--muted); }
+  .stat strong { color: var(--text); font-size: 13px; }
+
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+    padding: 3px 10px; background: var(--panel2); border: 1px solid var(--border); border-radius: 999px; }
+
+  .drop {
+    border: 2px dashed var(--border); border-radius: 12px; padding: 34px; text-align: center;
+    color: var(--muted); transition: 0.15s ease all; cursor: pointer;
+  }
+  .drop:hover, .drop.drag { border-color: var(--accent); color: var(--text); background: var(--panel2); }
+  .drop input { display: none; }
+
+  .progress { height: 8px; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 999px; overflow: hidden; margin-top: 12px; }
+  .progress > div { height: 100%; background: var(--accent); width: 0%; transition: 0.2s width ease; }
+
+  .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .check-card { background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; }
+  .check-card .name { font-weight: 600; margin-bottom: 6px; display: flex;
+    align-items: center; justify-content: space-between; gap: 8px; }
+  .check-card .details { font-size: 11px; color: var(--muted); line-height: 1.6; }
+  .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+    letter-spacing: 0.4px; white-space: nowrap; }
+  .badge.pending  { background: #2a3040; color: var(--muted); }
+  .badge.detected { background: rgba(110, 231, 183, 0.16); color: var(--accent); }
+  .badge.missing  { background: rgba(248, 113, 113, 0.16); color: var(--danger); }
+  .badge.optional { background: #2a3040; color: var(--muted); }
+  .check-card.detected { border-color: rgba(110, 231, 183, 0.5); }
+  .check-card.missing  { border-color: rgba(248, 113, 113, 0.6); }
+
+  .verdict { border-radius: 12px; padding: 16px 20px; margin-bottom: 18px;
+    font-size: 15px; font-weight: 600; display: flex; gap: 12px; align-items: center; }
+  .verdict.pass { background: rgba(110, 231, 183, 0.12); border: 1px solid var(--accent); color: var(--accent); }
+  .verdict.fail { background: rgba(248, 113, 113, 0.12); border: 1px solid var(--danger); color: var(--danger);
+    animation: pulse 1.2s ease-in-out 3; }
+  .verdict .big { font-size: 22px; }
+  .verdict .sub { font-size: 12px; font-weight: 400; color: var(--muted); margin-top: 2px; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(248, 113, 113, 0.15); } }
+
+  .stage { background: #000; border-radius: 10px; overflow: hidden; max-width: 100%; }
+  .stage img, .stage video { display: block; width: 100%; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 860px) { .split { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>AI SOP Monitor</h1>
+  <div class="meta">
+    v{{ version }}
+    · weights: <strong id="meta-weights">…</strong>
+    · device: <strong id="meta-device">…</strong>
+  </div>
+</header>
+
+<main>
+  <!-- SOP rules summary -->
+  <div class="panel">
+    <div class="section-title">SOP rules</div>
+    <div class="chips" id="sop-chips"><span class="muted">loading…</span></div>
+    <div class="muted" style="margin-top: 8px; font-size: 12px;">
+      A category counts as <strong style="color:var(--accent)">detected</strong> once it is seen in
+      <span id="rule-frames">…</span> frame(s) with confidence ≥ <span id="rule-conf">…</span>.
+      Any required category still missing when the video ends raises an alert.
+      Rules come from <code>sop_config.json</code> (optional) — see <code>SOP.md</code>.
+    </div>
+  </div>
+
+  <!-- Upload -->
+  <div class="panel" id="upload-panel">
+    <div class="section-title">1 · Upload inspection video</div>
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept="video/*" />
+      <div><strong>Click here</strong> or drop a video file</div>
+      <div class="muted" style="margin-top: 6px;">mp4 / avi / mov · the model checks every frame for the required categories</div>
+    </label>
+    <div id="upload-status" class="row hidden">
+      <span class="stat">file: <strong id="up-name">—</strong></span>
+      <span class="stat">status: <strong id="up-status">—</strong></span>
+    </div>
+  </div>
+
+  <!-- Verdict banner (end of video) -->
+  <div id="verdict" class="verdict hidden"></div>
+
+  <!-- Checklist -->
+  <div class="panel hidden" id="checklist-panel">
+    <div class="section-title">2 · Category checklist</div>
+    <div class="check-grid" id="check-grid"></div>
+    <div class="row" style="margin-top: 14px;">
+      <span class="stat">progress: <strong id="job-progress">0%</strong></span>
+      <span class="stat">frames: <strong id="job-frames">—</strong></span>
+      <span class="stat">detected: <strong id="job-found">0 / 0</strong></span>
+      <span class="stat" id="job-elapsed-wrap" style="display:none">elapsed: <strong id="job-elapsed">—</strong> s</span>
+    </div>
+    <div class="progress"><div id="bar"></div></div>
+    <div id="job-error" class="muted hidden" style="margin-top: 10px; color: var(--danger); white-space: pre-wrap;"></div>
+  </div>
+
+  <!-- Live preview + result video -->
+  <div class="panel hidden" id="media-panel">
+    <div class="split">
+      <div>
+        <div class="section-title">Live preview</div>
+        <div class="stage"><img id="preview" alt="processing preview" /></div>
+      </div>
+      <div id="result-col" class="hidden">
+        <div class="section-title">Annotated result</div>
+        <div class="stage"><video id="result" controls playsinline></video></div>
+        <div class="row"><a id="result-link" href="#" target="_blank">open annotated video ↗</a></div>
+      </div>
+    </div>
+    <div class="row" style="margin-top: 14px;">
+      <button class="secondary" id="reset" style="display:none">▶ Check another video</button>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let meta = null;
+let pollTimer = null;
+
+function fmtSec(s) {
+  if (s == null) return "—";
+  const m = Math.floor(s / 60), r = (s % 60).toFixed(1);
+  return m ? `${m}m ${r}s` : `${r}s`;
+}
+
+async function loadMeta() {
+  const r = await fetch("/api/meta");
+  meta = await r.json();
+  $("meta-weights").textContent = meta.weights.split("/").slice(-2).join("/");
+  $("meta-device").textContent = meta.device;
+  $("rule-frames").textContent = meta.sop.min_frames;
+  $("rule-conf").textContent = meta.sop.min_conf;
+  const chips = $("sop-chips");
+  chips.innerHTML = "";
+  for (const name of meta.sop.required_names) {
+    const el = document.createElement("span");
+    el.className = "chip";
+    el.textContent = "☐ " + name;
+    chips.appendChild(el);
+  }
+  const rule = document.createElement("span");
+  rule.className = "chip";
+  rule.textContent = `${meta.sop.required_names.length} required categories`;
+  chips.appendChild(rule);
+}
+
+function renderClasses(classes) {
+  const grid = $("check-grid");
+  grid.innerHTML = "";
+  let found = 0, required = 0;
+  for (const c of classes) {
+    if (c.required) { required++; if (c.detected) found++; }
+    const card = document.createElement("div");
+    let badge, cardCls = "";
+    if (!c.required) {
+      badge = `<span class="badge optional">OPTIONAL</span>`;
+    } else if (c.detected) {
+      badge = `<span class="badge detected">✔ DETECTED</span>`; cardCls = "detected";
+    } else if (window.__jobDone) {
+      badge = `<span class="badge missing">✘ MISSING</span>`; cardCls = "missing";
+    } else {
+      badge = `<span class="badge pending">… PENDING</span>`;
+    }
+    card.className = "check-card " + cardCls;
+    card.innerHTML = `
+      <div class="name"><span>${c.name}</span>${badge}</div>
+      <div class="details">
+        first seen: ${c.first_seen_sec != null ? fmtSec(c.first_seen_sec) + " (frame " + c.first_seen_frame + ")" : "—"}<br/>
+        frames seen: ${c.frames_seen} · best conf: ${c.best_conf ? c.best_conf.toFixed(2) : "—"}
+      </div>`;
+    grid.appendChild(card);
+  }
+  $("job-found").textContent = `${found} / ${required}`;
+}
+
+function showVerdict(job) {
+  const v = $("verdict");
+  v.classList.remove("hidden", "pass", "fail");
+  if (job.verdict === "PASS") {
+    v.classList.add("pass");
+    v.innerHTML = `<span class="big">✅</span>
+      <div>SOP PASSED — all ${job.sop.required_names.length} required categories detected.
+      <div class="sub">${job.filename} · ${job.frames} frames · ${job.elapsed_sec}s processing</div></div>`;
+  } else {
+    v.classList.add("fail");
+    v.innerHTML = `<span class="big">🚨</span>
+      <div>SOP ALERT — missing: ${job.missing.join(", ")}.
+      <div class="sub">These required categories were never detected in ${job.filename}.
+      Re-inspect the assembly or re-record the video. See SOP.md §5 for escalation.</div></div>`;
+    beep();
+  }
+  v.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.25].forEach((t) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "square"; o.frequency.value = 880;
+      g.gain.setValueAtTime(0.08, ctx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.2);
+      o.connect(g).connect(ctx.destination);
+      o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.2);
+    });
+  } catch (e) { /* audio blocked — the banner is the primary alert */ }
+}
+
+async function poll(jobId) {
+  const r = await fetch("/api/job/" + jobId);
+  if (!r.ok) return;
+  const job = await r.json();
+
+  $("bar").style.width = (job.progress * 100).toFixed(1) + "%";
+  $("job-progress").textContent = (job.progress * 100).toFixed(1) + "%";
+  $("job-frames").textContent = job.total_frames
+    ? `${job.frames} / ${job.total_frames}` : job.frames;
+  if (job.preview) { $("preview").src = job.preview; }
+
+  if (job.status === "error") {
+    clearInterval(pollTimer);
+    $("job-error").textContent = job.error;
+    $("job-error").classList.remove("hidden");
+    $("up-status").textContent = "error";
+    $("reset").style.display = "";
+    return;
+  }
+
+  window.__jobDone = job.status === "done";
+  renderClasses(job.classes);
+
+  if (job.status === "done") {
+    clearInterval(pollTimer);
+    $("up-status").textContent = "done";
+    $("job-elapsed").textContent = job.elapsed_sec;
+    $("job-elapsed-wrap").style.display = "";
+    showVerdict(job);
+    $("result-col").classList.remove("hidden");
+    $("result").src = job.output_url;
+    $("result-link").href = job.output_url;
+    $("reset").style.display = "";
+  }
+}
+
+async function upload(file) {
+  window.__jobDone = false;
+  $("verdict").classList.add("hidden");
+  $("result-col").classList.add("hidden");
+  $("job-error").classList.add("hidden");
+  $("upload-status").classList.remove("hidden");
+  $("up-name").textContent = file.name;
+  $("up-status").textContent = "uploading…";
+  $("checklist-panel").classList.remove("hidden");
+  $("media-panel").classList.remove("hidden");
+  $("reset").style.display = "none";
+
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch("/api/upload_video", { method: "POST", body: fd });
+  const j = await r.json();
+  if (!r.ok || j.error) {
+    $("up-status").textContent = "error: " + (j.error || j.detail || r.status);
+    return;
+  }
+  $("up-status").textContent = "processing…";
+  pollTimer = setInterval(() => poll(j.job_id), 700);
+}
+
+const drop = $("drop");
+drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("drag"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("drag"));
+drop.addEventListener("drop", (e) => {
+  e.preventDefault(); drop.classList.remove("drag");
+  const f = e.dataTransfer.files[0];
+  if (f) upload(f);
+});
+$("file").addEventListener("change", (e) => {
+  const f = e.target.files[0];
+  if (f) upload(f);
+  e.target.value = "";
+});
+$("reset").addEventListener("click", () => {
+  clearInterval(pollTimer);
+  window.__jobDone = false;
+  $("verdict").classList.add("hidden");
+  $("checklist-panel").classList.add("hidden");
+  $("media-panel").classList.add("hidden");
+  $("upload-status").classList.add("hidden");
+  $("bar").style.width = "0%";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+
+loadMeta();
+</script>
+</body>
+</html>

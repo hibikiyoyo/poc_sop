@@ -1,0 +1,49 @@
+[project]
+name = "sop-monitor"
+version = "0.1.0"
+description = "AI SOP monitor: upload a video, run a YOLO model over every frame, and alert when required object categories never appear."
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = { text = "MIT" }
+authors = [{ name = "BOYD" }]
+
+# Torch is intentionally NOT listed here because pip can't pick the right
+# CUDA wheel from PyPI alone. Install it via the matching extra below.
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "jinja2>=3.1",
+  "python-multipart>=0.0.9",
+  "ultralytics>=8.4,<9",
+  "opencv-python>=4.10",
+  "numpy>=1.26",
+  # Bundles an ffmpeg binary for every OS: on Linux/macOS the OpenCV wheels
+  # can't encode H.264, so results are transcoded for browser playback.
+  "imageio-ffmpeg>=0.4",
+]
+
+[project.optional-dependencies]
+# GPU build matching CUDA 12.x. Install with:
+#   pip install -e .[gpu] --extra-index-url https://download.pytorch.org/whl/cu126
+gpu = [
+  "torch>=2.5",
+  "torchvision>=0.20",
+]
+# CPU-only fallback. Pip will resolve from PyPI by default.
+cpu = [
+  "torch>=2.5",
+  "torchvision>=0.20",
+]
+
+[project.scripts]
+sop-monitor = "sop_monitor.app:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sop_monitor = ["templates/*.html"]

@@ -1,0 +1,13 @@
+# Normalize line endings so the repo works identically on Windows and Linux.
+* text=auto
+
+# Files executed by POSIX tools must stay LF even on Windows checkouts.
+Makefile   text eol=lf
+*.sh       text eol=lf
+Dockerfile text eol=lf
+
+# Binary artifacts.
+*.pt  binary
+*.mp4 binary
+*.jpg binary
+*.png binary

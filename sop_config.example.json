@@ -1,0 +1,11 @@
+{
+  "required_classes": [
+    "copper",
+    "main welding plate",
+    "cover",
+    "cover welding plate",
+    "final"
+  ],
+  "min_conf": 0.25,
+  "min_frames": 2
+}
