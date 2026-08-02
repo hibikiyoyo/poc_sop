@@ -35,37 +35,36 @@ job endpoint while a background worker chews through the video:
 
 ```mermaid
 flowchart TD
-    subgraph FE["Frontend · monitor.html in the browser"]
+    subgraph FE["Frontend - monitor.html in the browser"]
         U["1. User drops an inspection video"]
-        POLL["4. Poll GET /api/job/(id) every 0.7 s"]
-        UI["5. Render job JSON:<br/>progress bar · live preview image<br/>category cards PENDING → DETECTED"]
-        DONE{"status = done?"}
-        VERD{"verdict?"}
-        OKB["✅ Green banner<br/>all required categories detected"]
-        ALB["🚨 Red SOP ALERT<br/>missing categories listed + alarm sound"]
-        PLAY["6. Play annotated result video<br/>GET /processed/(id).mp4"]
+        POLL["4. Poll GET /api/job/id every 0.7 s<br/>until status = done"]
+        UI["5. Render each poll response:<br/>progress bar, live preview image,<br/>category cards PENDING / DETECTED"]
+        VERD{"final verdict?"}
+        OKB["PASS: green banner,<br/>all required categories detected"]
+        ALB["FAIL: red SOP ALERT,<br/>missing categories + alarm sound"]
+        PLAY["6. Play annotated result video<br/>GET /processed/id.mp4"]
     end
 
-    subgraph BE["Backend · FastAPI (app.py)"]
-        UP["2. POST /api/upload_video<br/>save file to monitor_data/uploads<br/>create in-memory job: every class PENDING<br/>spawn worker thread"]
-        JOBAPI["GET /api/job/(id)<br/>returns the live job JSON"]
+    subgraph BE["Backend - FastAPI app.py"]
+        UP["2. POST /api/upload_video<br/>saves the file, creates the in-memory job<br/>with every class PENDING, spawns the<br/>worker thread, returns job_id"]
     end
 
-    subgraph WK["Worker thread · engine.py"]
-        LOOP["3. Frame loop<br/>(see next diagram)"]
-        FIN["7. Video finished:<br/>missing = required classes never DETECTED<br/>verdict = PASS if missing is empty, else FAIL<br/>re-encode to H.264 if needed"]
+    subgraph WK["Worker thread - engine.py"]
+        LOOP["3. Frame loop, see next diagram:<br/>updates the shared job object<br/>after every frame"]
+        FIN["7. Video finished: verdict PASS or FAIL,<br/>missing list and output_url written<br/>into the job object"]
     end
 
     U --> UP
-    UP -->|starts| LOOP
-    UP -.->|returns job_id| POLL
-    POLL --> JOBAPI --> UI --> DONE
-    DONE -->|no| POLL
+    UP --> LOOP
+    UP --> POLL
     LOOP --> FIN
-    FIN -.->|verdict · missing · output_url| JOBAPI
-    DONE -->|yes| VERD
-    VERD -->|PASS| OKB --> PLAY
-    VERD -->|FAIL| ALB --> PLAY
+    FIN --> POLL
+    POLL --> UI
+    UI --> VERD
+    VERD --> OKB
+    VERD --> ALB
+    OKB --> PLAY
+    ALB --> PLAY
 ```
 
 ### Inside the frame loop — how accuracy is handled
@@ -75,7 +74,7 @@ flowchart TD
     READ["Read next frame (OpenCV)"] --> INFER["YOLO26s-OBB inference<br/>imgsz 640 · GPU if available<br/>conf = min_conf drops weak predictions<br/>NMS at IoU 0.45 merges duplicate boxes"]
     INFER --> BOXES["Result: oriented boxes,<br/>each with class id + confidence 0–1"]
     BOXES --> ANY{"any class present<br/>in this frame?"}
-    ANY -->|yes, per class| STATS["Update class evidence:<br/>frames_seen += 1<br/>best_conf = max so far<br/>record first_seen frame + time"]
+    ANY -->|yes| STATS["Update evidence for each class seen:<br/>frames_seen += 1<br/>best_conf = max so far<br/>record first_seen frame + time"]
     ANY -->|no| DRAW
     STATS --> PERSIST{"frames_seen ≥ min_frames?<br/>(default 3)"}
     PERSIST -->|yes| DET["Mark class DETECTED ✔<br/>temporal persistence — one noisy frame<br/>can never satisfy the SOP"]
@@ -84,7 +83,7 @@ flowchart TD
     PEND --> DRAW
     DRAW --> MORE{"more frames?"}
     MORE -->|yes| READ
-    MORE -->|no| WRAP["End of video:<br/>missing = required − detected<br/>verdict = PASS / FAIL<br/>job JSON finalized for the frontend"]
+    MORE -->|no| WRAP["End of video:<br/>missing = required classes never detected<br/>verdict = PASS or FAIL<br/>job JSON finalized for the frontend"]
 ```
 
 The accuracy story in words:
