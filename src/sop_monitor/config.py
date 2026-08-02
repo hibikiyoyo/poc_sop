@@ -55,11 +55,49 @@ class Settings:
 settings = Settings()
 
 
+def _parse_assembly_rules(raw, names: dict[int, str],
+                          by_name: dict[str, int]) -> list[dict]:
+    """Resolve assembly_rules entries ({"inner", "outer", "min_overlap"?}) to
+    class ids. Rules naming unknown classes are warned about and skipped."""
+    rules: list[dict] = []
+    if raw is None:
+        return rules
+    if not isinstance(raw, list):
+        print("Warning: sop_config.json assembly_rules must be a list — ignored")
+        return rules
+    for item in raw:
+        if not isinstance(item, dict):
+            print(f"Warning: skipping invalid assembly rule {item!r}")
+            continue
+        ids = []
+        for key in ("inner", "outer"):
+            v = item.get(key)
+            if isinstance(v, int) and v in names:
+                ids.append(v)
+            elif isinstance(v, str) and v in by_name:
+                ids.append(by_name[v])
+            else:
+                print(f"Warning: assembly rule {key!r} names unknown class {v!r}")
+        if len(ids) != 2 or ids[0] == ids[1]:
+            continue
+        try:
+            min_overlap = float(item.get("min_overlap", 0.5))
+        except (TypeError, ValueError):
+            min_overlap = 0.5
+        rules.append({
+            "inner_id": ids[0], "inner_name": names[ids[0]],
+            "outer_id": ids[1], "outer_name": names[ids[1]],
+            "min_overlap": min(max(min_overlap, 0.0), 1.0),
+        })
+    return rules
+
+
 def load_sop_rules(names: dict[int, str]) -> dict:
     """Merge sop_config.json (if present) over the defaults and resolve the
     required classes to ids. Unknown entries are warned about and skipped;
     an empty/invalid list falls back to requiring every model class."""
-    cfg = {"required_classes": None, "min_conf": 0.25, "min_frames": 3}
+    cfg = {"required_classes": None, "min_conf": 0.25, "min_frames": 3,
+           "assembly_rules": None}
     if settings.sop_config_path.exists():
         try:
             user = json.loads(settings.sop_config_path.read_text(encoding="utf-8"))
@@ -86,4 +124,6 @@ def load_sop_rules(names: dict[int, str]) -> dict:
         "min_frames": max(1, int(cfg["min_frames"])),
         "required_ids": ids,
         "required_names": [names[i] for i in ids],
+        "assembly_rules": _parse_assembly_rules(cfg["assembly_rules"],
+                                                names, by_name),
     }

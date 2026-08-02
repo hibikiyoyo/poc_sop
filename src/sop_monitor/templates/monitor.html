@@ -107,7 +107,9 @@
     <div class="muted" style="margin-top: 8px; font-size: 12px;">
       A category counts as <strong style="color:var(--accent)">detected</strong> once it is seen in
       <span id="rule-frames">…</span> frame(s) with confidence ≥ <span id="rule-conf">…</span>.
-      Any required category still missing when the video ends raises an alert.
+      Assembly rules additionally require the inner component's box to overlap the outer
+      component's box (by the listed share of its area) in that many frames.
+      Any required category or assembly rule still unsatisfied when the video ends raises an alert.
       Rules come from <code>sop_config.json</code> (optional) — see <code>SOP.md</code>.
     </div>
   </div>
@@ -133,10 +135,15 @@
   <div class="panel hidden" id="checklist-panel">
     <div class="section-title">2 · Category checklist</div>
     <div class="check-grid" id="check-grid"></div>
+    <div id="rules-wrap" class="hidden">
+      <div class="section-title" style="margin-top: 16px;">3 · Assembly checks</div>
+      <div class="check-grid" id="rule-grid"></div>
+    </div>
     <div class="row" style="margin-top: 14px;">
       <span class="stat">progress: <strong id="job-progress">0%</strong></span>
       <span class="stat">frames: <strong id="job-frames">—</strong></span>
       <span class="stat">detected: <strong id="job-found">0 / 0</strong></span>
+      <span class="stat" id="job-rules-wrap" style="display:none">assembly: <strong id="job-rules-ok">0 / 0</strong></span>
       <span class="stat" id="job-elapsed-wrap" style="display:none">elapsed: <strong id="job-elapsed">—</strong> s</span>
     </div>
     <div class="progress"><div id="bar"></div></div>
@@ -188,9 +195,17 @@ async function loadMeta() {
     el.textContent = "☐ " + name;
     chips.appendChild(el);
   }
+  for (const r of (meta.sop.assembly_rules || [])) {
+    const el = document.createElement("span");
+    el.className = "chip";
+    el.textContent = `⛶ ${r.inner_name} in ${r.outer_name} (≥ ${Math.round(r.min_overlap * 100)}%)`;
+    chips.appendChild(el);
+  }
   const rule = document.createElement("span");
   rule.className = "chip";
-  rule.textContent = `${meta.sop.required_names.length} required categories`;
+  const nRules = (meta.sop.assembly_rules || []).length;
+  rule.textContent = `${meta.sop.required_names.length} required categories`
+    + (nRules ? ` · ${nRules} assembly rule(s)` : "");
   chips.appendChild(rule);
 }
 
@@ -223,19 +238,59 @@ function renderClasses(classes) {
   $("job-found").textContent = `${found} / ${required}`;
 }
 
+function renderRules(rules) {
+  if (!rules || !rules.length) {
+    $("rules-wrap").classList.add("hidden");
+    $("job-rules-wrap").style.display = "none";
+    return;
+  }
+  $("rules-wrap").classList.remove("hidden");
+  $("job-rules-wrap").style.display = "";
+  const grid = $("rule-grid");
+  grid.innerHTML = "";
+  let ok = 0;
+  for (const r of rules) {
+    if (r.satisfied) ok++;
+    let badge, cardCls = "";
+    if (r.satisfied) {
+      badge = `<span class="badge detected">✔ VERIFIED</span>`; cardCls = "detected";
+    } else if (window.__jobDone) {
+      badge = `<span class="badge missing">✘ NOT VERIFIED</span>`; cardCls = "missing";
+    } else {
+      badge = `<span class="badge pending">… PENDING</span>`;
+    }
+    const card = document.createElement("div");
+    card.className = "check-card " + cardCls;
+    card.innerHTML = `
+      <div class="name"><span>${r.inner} <span class="muted">in</span> ${r.outer}</span>${badge}</div>
+      <div class="details">
+        needs ≥ ${Math.round(r.min_overlap * 100)}% of the ${r.inner} box inside ${r.outer}<br/>
+        first ok: ${r.first_ok_sec != null ? fmtSec(r.first_ok_sec) + " (frame " + r.first_ok_frame + ")" : "—"}<br/>
+        frames ok: ${r.frames_ok} · best overlap: ${r.best_overlap ? Math.round(r.best_overlap * 100) + "%" : "—"}
+      </div>`;
+    grid.appendChild(card);
+  }
+  $("job-rules-ok").textContent = `${ok} / ${rules.length}`;
+}
+
 function showVerdict(job) {
   const v = $("verdict");
   v.classList.remove("hidden", "pass", "fail");
+  const nRules = (job.rules || []).length;
   if (job.verdict === "PASS") {
     v.classList.add("pass");
     v.innerHTML = `<span class="big">✅</span>
-      <div>SOP PASSED — all ${job.sop.required_names.length} required categories detected.
+      <div>SOP PASSED — all ${job.sop.required_names.length} required categories detected${
+        nRules ? ` and all ${nRules} assembly check(s) verified` : ""}.
       <div class="sub">${job.filename} · ${job.frames} frames · ${job.elapsed_sec}s processing</div></div>`;
   } else {
     v.classList.add("fail");
+    const problems = [];
+    if (job.missing && job.missing.length) problems.push(`missing: ${job.missing.join(", ")}`);
+    if (job.failed_rules && job.failed_rules.length) problems.push(`assembly not verified: ${job.failed_rules.join(", ")}`);
     v.innerHTML = `<span class="big">🚨</span>
-      <div>SOP ALERT — missing: ${job.missing.join(", ")}.
-      <div class="sub">These required categories were never detected in ${job.filename}.
+      <div>SOP ALERT — ${problems.join(" · ")}.
+      <div class="sub">Required categories or assembly overlaps were never verified in ${job.filename}.
       Re-inspect the assembly or re-record the video. See SOP.md §5 for escalation.</div></div>`;
     beep();
   }
@@ -278,6 +333,7 @@ async function poll(jobId) {
 
   window.__jobDone = job.status === "done";
   renderClasses(job.classes);
+  renderRules(job.rules);
 
   if (job.status === "done") {
     clearInterval(pollTimer);

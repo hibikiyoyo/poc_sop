@@ -1,10 +1,13 @@
 """Model loading, drawing, and the background video-verification worker.
 
 A category counts as DETECTED once it appears in at least `min_frames`
-frames with confidence >= `min_conf` (see config.load_sop_rules). Works with
-oriented-bounding-box (OBB) models and regular axis-aligned models alike:
-OBB results get the custom polygon drawing below, anything else falls back
-to Ultralytics' own `result.plot()`.
+frames with confidence >= `min_conf` (see config.load_sop_rules). Assembly
+rules add a spatial check on top: an "inner" component must overlap its
+"outer" component by at least `min_overlap` of the inner box's area in
+`min_frames` frames (e.g. the main welding plate sitting in the copper).
+Works with oriented-bounding-box (OBB) models and regular axis-aligned
+models alike: OBB results get the custom polygon drawing below, anything
+else falls back to Ultralytics' own `result.plot()`.
 """
 
 from __future__ import annotations
@@ -80,14 +83,78 @@ def new_class_states(names: dict[int, str], required_ids: list[int]) -> list[dic
     } for cid in sorted(names)]
 
 
-def _result_hits(result) -> tuple[np.ndarray, np.ndarray] | None:
-    """(class_ids, confidences) from an OBB or axis-aligned result, else None."""
+def new_rule_states(rules: list[dict]) -> list[dict]:
+    return [{
+        "inner": r["inner_name"],
+        "outer": r["outer_name"],
+        "inner_id": r["inner_id"],
+        "outer_id": r["outer_id"],
+        "min_overlap": r["min_overlap"],
+        "satisfied": False,
+        "frames_ok": 0,
+        "best_overlap": 0.0,
+        "first_ok_frame": None,
+        "first_ok_sec": None,
+    } for r in rules]
+
+
+def _result_hits(result) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """(class_ids, confidences, corner polygons) from an OBB or axis-aligned
+    result, else None. Polygons are float32 (N, 4, 2) so the assembly-overlap
+    checks work identically for rotated and upright boxes."""
     det = getattr(result, "obb", None)
+    is_obb = det is not None
     if det is None:
         det = getattr(result, "boxes", None)
     if det is None or len(det) == 0:
         return None
-    return det.cls.cpu().numpy().astype(int), det.conf.cpu().numpy()
+    cls = det.cls.cpu().numpy().astype(int)
+    conf = det.conf.cpu().numpy()
+    if is_obb:
+        polys = det.xyxyxyxy.cpu().numpy().astype(np.float32)
+    else:
+        xyxy = det.xyxy.cpu().numpy()
+        polys = np.stack([xyxy[:, [0, 1]], xyxy[:, [2, 1]],
+                          xyxy[:, [2, 3]], xyxy[:, [0, 3]]],
+                         axis=1).astype(np.float32)
+    return cls, conf, polys
+
+
+def _containment(inner_poly: np.ndarray, outer_poly: np.ndarray) -> float:
+    """Fraction (0..1) of `inner_poly`'s area covered by `outer_poly`.
+
+    convexHull guarantees the vertex ordering intersectConvexConvex expects,
+    regardless of how the model emits the corners."""
+    inner = cv2.convexHull(inner_poly.astype(np.float32))
+    outer = cv2.convexHull(outer_poly.astype(np.float32))
+    inner_area = cv2.contourArea(inner)
+    if inner_area <= 0:
+        return 0.0
+    inter_area, _ = cv2.intersectConvexConvex(inner, outer)
+    return float(inter_area) / float(inner_area)
+
+
+def _update_rules(rule_states: list[dict], cls: np.ndarray, polys: np.ndarray,
+                  frame_idx: int, fps: float, min_frames: int) -> None:
+    """Per-frame assembly check: a frame counts for a rule when any inner
+    detection overlaps any outer detection by at least the rule's min_overlap."""
+    for rs in rule_states:
+        inner_idx = np.flatnonzero(cls == rs["inner_id"])
+        outer_idx = np.flatnonzero(cls == rs["outer_id"])
+        if len(inner_idx) == 0 or len(outer_idx) == 0:
+            continue
+        best = 0.0
+        for i in inner_idx:
+            for j in outer_idx:
+                best = max(best, _containment(polys[i], polys[j]))
+        rs["best_overlap"] = round(max(rs["best_overlap"], best), 3)
+        if best >= rs["min_overlap"]:
+            rs["frames_ok"] += 1
+            if rs["first_ok_frame"] is None:
+                rs["first_ok_frame"] = frame_idx
+                rs["first_ok_sec"] = round(frame_idx / fps, 2)
+            if not rs["satisfied"] and rs["frames_ok"] >= min_frames:
+                rs["satisfied"] = True
 
 
 def _draw_obb(frame: np.ndarray, result) -> np.ndarray:
@@ -249,6 +316,7 @@ def process_video_job(job_id: str, src_path: Path) -> None:
         model, _ = get_model()
         device = 0 if torch.cuda.is_available() else "cpu"
         by_id = {c["id"]: c for c in job["classes"]}
+        rule_states = job.get("rules") or []
         min_frames = sop["min_frames"]
         frame_idx = 0
         t0 = time.time()
@@ -262,7 +330,7 @@ def process_video_job(job_id: str, src_path: Path) -> None:
 
             hits = _result_hits(r)
             if hits is not None:
-                cls, conf = hits
+                cls, conf, polys = hits
                 for cid in set(cls.tolist()):
                     st = by_id.get(cid)
                     if st is None:
@@ -275,6 +343,9 @@ def process_video_job(job_id: str, src_path: Path) -> None:
                         st["first_seen_sec"] = round(frame_idx / fps, 2)
                     if not st["detected"] and st["frames_seen"] >= min_frames:
                         st["detected"] = True
+                if rule_states:
+                    _update_rules(rule_states, cls, polys, frame_idx, fps,
+                                  min_frames)
 
             frame = _annotate(frame, r)
             writer.write(frame)
@@ -300,11 +371,14 @@ def process_video_job(job_id: str, src_path: Path) -> None:
 
         missing = [c["name"] for c in job["classes"]
                    if c["required"] and not c["detected"]]
+        failed_rules = [f'{r["inner"]} in {r["outer"]}'
+                        for r in rule_states if not r["satisfied"]]
         job["progress"] = 1.0
         job["frames"] = frame_idx
         job["elapsed_sec"] = round(time.time() - t0, 2)
         job["missing"] = missing
-        job["verdict"] = "PASS" if not missing else "FAIL"
+        job["failed_rules"] = failed_rules
+        job["verdict"] = "PASS" if not missing and not failed_rules else "FAIL"
         job["output_url"] = f"/processed/{out_path.name}"
         job["status"] = "done"
         try:

@@ -9,7 +9,7 @@ required object category appears in an inspection video.
 | **Model**    | Ultralytics YOLO checkpoint at `weights/best.pt` |
 | **Scope**    | Recorded inspection videos |
 | **Owner**    | BOYD |
-| **Doc**      | SOP.md v1.0 — 2026-08-01 |
+| **Doc**      | SOP.md v1.1 — 2026-08-02 |
 
 ## 1. Purpose
 
@@ -38,10 +38,19 @@ To require only a subset, list it in `sop_config.json` (§6).
 - A detection counts only when its confidence is **≥ `min_conf`** (default **0.25**).
 - A category is marked **DETECTED** once it appears in **≥ `min_frames`**
   frames (default **3**) — this filters out single-frame false positives.
-- **PASS**: every required category is DETECTED when the video ends.
-- **FAIL**: one or more required categories were never detected → the
-  dashboard shows a red **SOP ALERT** banner listing the missing objects and
-  plays an audible alarm.
+- **Assembly rules** (optional, §6) verify that components are actually
+  assembled, not just present somewhere in the frame: each rule names an
+  *inner* and an *outer* component, and is **VERIFIED** once, in
+  **≥ `min_frames`** frames, at least **`min_overlap`** (default **0.5**) of
+  the inner box's area overlaps an outer box. The bundled defaults check that
+  the *main welding plate* sits in the *copper* and the *cover welding plate*
+  sits in the *cover*.
+- **PASS**: every required category is DETECTED **and** every assembly rule
+  is VERIFIED when the video ends.
+- **FAIL**: one or more required categories were never detected, or one or
+  more assembly rules were never verified → the dashboard shows a red
+  **SOP ALERT** banner listing the missing objects / failed rules and plays
+  an audible alarm.
 
 ## 4. Operating procedure
 
@@ -90,7 +99,11 @@ re-reads it for every uploaded video (no restart needed):
   "required_classes": ["copper", "main welding plate", "cover",
                         "cover welding plate", "final"],
   "min_conf": 0.25,
-  "min_frames": 3
+  "min_frames": 3,
+  "assembly_rules": [
+    { "inner": "main welding plate", "outer": "copper", "min_overlap": 0.5 },
+    { "inner": "cover welding plate", "outer": "cover", "min_overlap": 0.5 }
+  ]
 }
 ```
 
@@ -98,7 +111,13 @@ re-reads it for every uploaded video (no restart needed):
   to require **all** model classes. Categories not listed still appear on
   the dashboard as `OPTIONAL` and never trigger alerts.
 - `min_conf` — confidence gate for a detection to count.
-- `min_frames` — frames a category must be seen in before it is DETECTED.
+- `min_frames` — frames a category must be seen in before it is DETECTED
+  (also the frame count an assembly rule needs before it is VERIFIED).
+- `assembly_rules` — spatial checks; each entry needs `inner` and `outer`
+  (class name or id) and an optional `min_overlap` (0–1, default 0.5): the
+  share of the inner box's area that must lie inside an outer box for a
+  frame to count. Omit the key entirely to skip assembly checking. Rules
+  naming unknown classes are warned about and skipped.
 
 ## 7. Maintenance
 

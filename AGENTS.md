@@ -2,7 +2,8 @@
 
 FastAPI dashboard that verifies inspection videos against an SOP: a YOLO26s-OBB
 model (five welding-plate components) checks every frame; any required category
-that never appears triggers a FAIL verdict and an alert. Internal tool, Python
+that never appears — or assembly rule (inner-in-outer overlap) never satisfied —
+triggers a FAIL verdict and an alert. Internal tool, Python
 3.10–3.13 (3.12 pinned via `.python-version`). Windows, Linux, macOS, and
 Docker are all supported targets — keep it that way.
 
@@ -57,15 +58,17 @@ Docker are all supported targets — keep it that way.
   gitignored (local overrides); `sop_config.example.json` is the tracked template.
 - `monitor_data/` and `weights/` resolve relative to CWD (overridable via
   `SOP_MONITOR_*` env vars) — run from the repo root.
-- The job JSON is the FE/BE contract (`classes[]`, `verdict`, `missing[]`,
-  `preview`, `output_url`); `monitor.html` polls `GET /api/job/{id}` every
-  0.7 s. Change backend fields and the JS renderer together.
+- The job JSON is the FE/BE contract (`classes[]`, `rules[]`, `verdict`,
+  `missing[]`, `failed_rules[]`, `preview`, `output_url`); `monitor.html`
+  polls `GET /api/job/{id}` every 0.7 s. Change backend fields and the JS
+  renderer together.
 
 ## Vocabulary
 - **SOP**: the pass/fail procedure in `SOP.md` — every required category must appear in the video.
 - **verdict**: `"PASS" | "FAIL"`, computed once at end of video; **missing[]**: required class names never DETECTED.
 - **DETECTED**: class seen in ≥ `min_frames` frames at conf ≥ `min_conf`. **PENDING**: not yet. **OPTIONAL**: class not in `required_classes` — never alerts.
 - **min_conf** (0.25) / **min_frames** (3): the two accuracy knobs — confidence gate + temporal persistence.
+- **assembly rule**: spatial check from `assembly_rules` in `sop_config.json` — ≥ `min_overlap` (default 0.5) of the inner class's box area must overlap an outer-class box in ≥ `min_frames` frames (convex-polygon intersection in `engine._containment`); unsatisfied rules land in **failed_rules[]** and force FAIL.
 - **OBB**: oriented bounding box — read from `result.obb`, with `result.boxes` fallback for axis-aligned models.
 - **job**: in-memory dict in `engine.jobs`, keyed by 12-hex id; lost on restart (annotated MP4s on disk survive).
 

@@ -19,9 +19,14 @@ list always comes from the model itself.
 3. A category is marked **DETECTED** once it appears in ≥ `min_frames`
    frames (default 3) with confidence ≥ `min_conf` (default 0.25) — the
    multi-frame rule filters out single-frame false positives.
-4. At 100 %: **✅ SOP PASSED** if every required category was detected,
-   otherwise **🚨 SOP ALERT** with the missing categories, an audible alarm,
-   and the annotated result video for review.
+4. Optional **assembly rules** check that components are actually assembled,
+   not just visible somewhere: a rule like *main welding plate in copper* is
+   **VERIFIED** once ≥ `min_overlap` (default 0.5) of the inner box's area
+   overlaps an outer box in ≥ `min_frames` frames.
+5. At 100 %: **✅ SOP PASSED** if every required category was detected and
+   every assembly rule verified, otherwise **🚨 SOP ALERT** with the missing
+   categories / failed rules, an audible alarm, and the annotated result
+   video for review.
 
 The formal procedure (verification rules, alert handling, escalation) is in
 [SOP.md](SOP.md).
@@ -99,14 +104,22 @@ The accuracy story in words:
 - **Evidence per class** — first-seen frame/time, frames seen, and best
   confidence are accumulated per category and shown on its dashboard card,
   so a human can judge how solid each detection is.
+- **Assembly overlap (`assembly_rules`, optional)** — presence alone doesn't
+  prove assembly. Each rule computes, per frame, how much of the inner
+  component's (oriented) box lies inside the outer component's box — exact
+  convex-polygon intersection, so rotated OBBs are handled correctly. A frame
+  counts when that share reaches the rule's `min_overlap`; the rule is
+  VERIFIED after `min_frames` such frames (same persistence idea as above).
 - **Verdict** — computed once, when the last frame is done: every required
-  category that never reached DETECTED goes into `missing[]`; an empty list
+  category that never reached DETECTED goes into `missing[]`, every assembly
+  rule that never reached VERIFIED goes into `failed_rules[]`; both empty
   means PASS, anything else means FAIL.
 - **BE → FE transport** — one JSON object per job carries everything. While
   running, each poll of `GET /api/job/{id}` returns progress, a base64
-  preview frame, and the live per-class stats; the final poll additionally
-  carries `verdict`, `missing[]`, and `output_url` for the annotated video,
-  which the frontend turns into the green banner or the red alert.
+  preview frame, and the live per-class + per-rule stats; the final poll
+  additionally carries `verdict`, `missing[]`, `failed_rules[]`, and
+  `output_url` for the annotated video, which the frontend turns into the
+  green banner or the red alert.
 
 ## Quickstart
 
@@ -199,7 +212,11 @@ re-read for every uploaded video — no restart needed.
   "required_classes": ["copper", "main welding plate", "cover",
                         "cover welding plate", "final"],
   "min_conf": 0.25,
-  "min_frames": 3
+  "min_frames": 3,
+  "assembly_rules": [
+    { "inner": "main welding plate", "outer": "copper", "min_overlap": 0.5 },
+    { "inner": "cover welding plate", "outer": "cover", "min_overlap": 0.5 }
+  ]
 }
 ```
 
@@ -207,7 +224,8 @@ re-read for every uploaded video — no restart needed.
 |---|---|---|
 | `required_classes` | class names or numeric ids to verify; omit to require **all** model classes. Unlisted classes show as `OPTIONAL` and never alert. | all classes |
 | `min_conf` | confidence gate for a detection to count | `0.25` |
-| `min_frames` | frames a category must be seen in before it is DETECTED | `3` |
+| `min_frames` | frames a category must be seen in before it is DETECTED (also applies to assembly rules) | `3` |
+| `assembly_rules` | spatial checks: each `{ "inner", "outer", "min_overlap"? }` entry requires ≥ `min_overlap` (0–1, default 0.5) of the inner box's area to overlap an outer box in ≥ `min_frames` frames. Omit for no assembly checking. | none |
 
 ### Environment variables
 

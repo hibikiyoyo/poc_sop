@@ -12,8 +12,9 @@ Endpoints
 GET  /                       -> monitor dashboard (Jinja2 template)
 GET  /api/meta               -> { names, weights, device, sop: {...} }
 POST /api/upload_video       multipart form, field name "file" -> { job_id }
-GET  /api/job/{job_id}       -> { status, progress, classes: [...], preview,
-                                  verdict?, missing?, output_url? }
+GET  /api/job/{job_id}       -> { status, progress, classes: [...], rules: [...],
+                                  preview, verdict?, missing?, failed_rules?,
+                                  output_url? }
 GET  /processed/<file>       -> annotated MP4 (static mount, Range supported)
 GET  /docs                   -> interactive OpenAPI docs (FastAPI built-in)
 """
@@ -42,6 +43,7 @@ from .engine import (
     jobs_lock,
     model_names,
     new_class_states,
+    new_rule_states,
     process_video_job,
 )
 
@@ -93,6 +95,7 @@ def upload_video(file: UploadFile = File(...)):
         "started_at": datetime.now().isoformat(timespec="seconds"),
         "sop": sop,
         "classes": new_class_states(names, sop["required_ids"]),
+        "rules": new_rule_states(sop["assembly_rules"]),
         "preview": None,
     }
     with jobs_lock:
@@ -135,6 +138,9 @@ def main() -> None:
     print(f"Classes: {model.names}")
     print(f"SOP: require {sop['required_names']} "
           f"(min_conf={sop['min_conf']}, min_frames={sop['min_frames']})")
+    for r in sop["assembly_rules"]:
+        print(f"SOP assembly rule: {r['inner_name']} in {r['outer_name']} "
+              f"(min_overlap={r['min_overlap']})")
     if args.check:
         return
     print(f"SOP monitor listening on http://{settings.host}:{settings.port}/")
