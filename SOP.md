@@ -100,6 +100,8 @@ re-reads it for every uploaded video (no restart needed):
                         "cover welding plate", "final"],
   "min_conf": 0.25,
   "min_frames": 3,
+  "imgsz": 640,
+  "frame_stride": 1,
   "assembly_rules": [
     { "inner": "main welding plate", "outer": "copper", "min_overlap": 0.5 },
     { "inner": "cover welding plate", "outer": "cover", "min_overlap": 0.5 }
@@ -113,6 +115,13 @@ re-reads it for every uploaded video (no restart needed):
 - `min_conf` — confidence gate for a detection to count.
 - `min_frames` — frames a category must be seen in before it is DETECTED
   (also the frame count an assembly rule needs before it is VERIFIED).
+- `imgsz` — inference resolution in px (longer side; rounded to a multiple
+  of 32). Larger finds smaller components but is slower.
+- `frame_stride` — analyze only every Nth frame (1 = every frame). Speeds up
+  processing; skipped frames are still written to the annotated video with
+  the last analyzed frame's boxes. `min_frames` counts analyzed frames, so
+  raising the stride also stretches the wall-clock time a category must
+  persist to count.
 - `assembly_rules` — spatial checks; each entry needs `inner` and `outer`
   (class name or id) and an optional `min_overlap` (0–1, default 0.5): the
   share of the inner box's area that must lie inside an outer box for a

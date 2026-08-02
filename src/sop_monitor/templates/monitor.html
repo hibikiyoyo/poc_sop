@@ -110,6 +110,7 @@
       Assembly rules additionally require the inner component's box to overlap the outer
       component's box (by the listed share of its area) in that many frames.
       Any required category or assembly rule still unsatisfied when the video ends raises an alert.
+      Analysis runs on every <span id="rule-stride"></span>frame at <span id="rule-imgsz">…</span> px inference size.
       Rules come from <code>sop_config.json</code> (optional) — see <code>SOP.md</code>.
     </div>
   </div>
@@ -187,6 +188,10 @@ async function loadMeta() {
   $("meta-device").textContent = meta.device;
   $("rule-frames").textContent = meta.sop.min_frames;
   $("rule-conf").textContent = meta.sop.min_conf;
+  $("rule-imgsz").textContent = meta.sop.imgsz;
+  const stride = meta.sop.frame_stride;
+  $("rule-stride").textContent =
+    stride <= 1 ? "" : stride === 2 ? "2nd " : stride === 3 ? "3rd " : `${stride}th `;
   const chips = $("sop-chips");
   chips.innerHTML = "";
   for (const name of meta.sop.required_names) {

@@ -68,6 +68,7 @@ Docker are all supported targets — keep it that way.
 - **verdict**: `"PASS" | "FAIL"`, computed once at end of video; **missing[]**: required class names never DETECTED.
 - **DETECTED**: class seen in ≥ `min_frames` frames at conf ≥ `min_conf`. **PENDING**: not yet. **OPTIONAL**: class not in `required_classes` — never alerts.
 - **min_conf** (0.25) / **min_frames** (3): the two accuracy knobs — confidence gate + temporal persistence.
+- **imgsz** (640) / **frame_stride** (1): the two speed knobs — inference resolution (rounded to a multiple of 32) + analyze-every-Nth-frame. Skipped frames are annotated with the last result; `min_frames` counts analyzed frames.
 - **assembly rule**: spatial check from `assembly_rules` in `sop_config.json` — ≥ `min_overlap` (default 0.5) of the inner class's box area must overlap an outer-class box in ≥ `min_frames` frames (convex-polygon intersection in `engine._containment`); unsatisfied rules land in **failed_rules[]** and force FAIL.
 - **OBB**: oriented bounding box — read from `result.obb`, with `result.boxes` fallback for axis-aligned models.
 - **job**: in-memory dict in `engine.jobs`, keyed by 12-hex id; lost on restart (annotated MP4s on disk survive).

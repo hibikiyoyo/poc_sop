@@ -8,6 +8,8 @@
   ],
   "min_conf": 0.25,
   "min_frames": 2,
+  "imgsz": 640,
+  "frame_stride": 1,
   "assembly_rules": [
     { "inner": "main welding plate", "outer": "copper", "min_overlap": 0.5 },
     { "inner": "cover welding plate", "outer": "cover", "min_overlap": 0.5 }

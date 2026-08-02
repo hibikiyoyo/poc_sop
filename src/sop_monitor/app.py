@@ -137,7 +137,8 @@ def main() -> None:
     print(f"Device: {device_str()}")
     print(f"Classes: {model.names}")
     print(f"SOP: require {sop['required_names']} "
-          f"(min_conf={sop['min_conf']}, min_frames={sop['min_frames']})")
+          f"(min_conf={sop['min_conf']}, min_frames={sop['min_frames']}, "
+          f"imgsz={sop['imgsz']}, frame_stride={sop['frame_stride']})")
     for r in sop["assembly_rules"]:
         print(f"SOP assembly rule: {r['inner_name']} in {r['outer_name']} "
               f"(min_overlap={r['min_overlap']})")

@@ -76,7 +76,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    READ["Read next frame (OpenCV)"] --> INFER["YOLO26s-OBB inference<br/>imgsz 640 · GPU if available<br/>conf = min_conf drops weak predictions<br/>NMS at IoU 0.45 merges duplicate boxes"]
+    READ["Read next frame (OpenCV)<br/>frame_stride skips inference on<br/>all but every Nth frame"] --> INFER["YOLO26s-OBB inference<br/>imgsz (default 640) · GPU if available<br/>conf = min_conf drops weak predictions<br/>NMS at IoU 0.45 merges duplicate boxes"]
     INFER --> BOXES["Result: oriented boxes,<br/>each with class id + confidence 0–1"]
     BOXES --> ANY{"any class present<br/>in this frame?"}
     ANY -->|yes| STATS["Update evidence for each class seen:<br/>frames_seen += 1<br/>best_conf = max so far<br/>record first_seen frame + time"]
@@ -213,6 +213,8 @@ re-read for every uploaded video — no restart needed.
                         "cover welding plate", "final"],
   "min_conf": 0.25,
   "min_frames": 3,
+  "imgsz": 640,
+  "frame_stride": 1,
   "assembly_rules": [
     { "inner": "main welding plate", "outer": "copper", "min_overlap": 0.5 },
     { "inner": "cover welding plate", "outer": "cover", "min_overlap": 0.5 }
@@ -224,7 +226,9 @@ re-read for every uploaded video — no restart needed.
 |---|---|---|
 | `required_classes` | class names or numeric ids to verify; omit to require **all** model classes. Unlisted classes show as `OPTIONAL` and never alert. | all classes |
 | `min_conf` | confidence gate for a detection to count | `0.25` |
-| `min_frames` | frames a category must be seen in before it is DETECTED (also applies to assembly rules) | `3` |
+| `min_frames` | frames a category must be seen in before it is DETECTED (also applies to assembly rules; counts *analyzed* frames when `frame_stride` > 1) | `3` |
+| `imgsz` | inference resolution in px (rounded to a multiple of 32); larger finds smaller parts, slower | `640` |
+| `frame_stride` | analyze every Nth frame only; skipped frames are written to the result video with the last boxes | `1` |
 | `assembly_rules` | spatial checks: each `{ "inner", "outer", "min_overlap"? }` entry requires ≥ `min_overlap` (0–1, default 0.5) of the inner box's area to overlap an outer box in ≥ `min_frames` frames. Omit for no assembly checking. | none |
 
 ### Environment variables

@@ -97,7 +97,7 @@ def load_sop_rules(names: dict[int, str]) -> dict:
     required classes to ids. Unknown entries are warned about and skipped;
     an empty/invalid list falls back to requiring every model class."""
     cfg = {"required_classes": None, "min_conf": 0.25, "min_frames": 3,
-           "assembly_rules": None}
+           "imgsz": 640, "frame_stride": 1, "assembly_rules": None}
     if settings.sop_config_path.exists():
         try:
             user = json.loads(settings.sop_config_path.read_text(encoding="utf-8"))
@@ -122,6 +122,9 @@ def load_sop_rules(names: dict[int, str]) -> dict:
     return {
         "min_conf": float(cfg["min_conf"]),
         "min_frames": max(1, int(cfg["min_frames"])),
+        # YOLO wants the inference size in multiples of 32
+        "imgsz": max(32, round(int(cfg["imgsz"]) / 32) * 32),
+        "frame_stride": max(1, int(cfg["frame_stride"])),
         "required_ids": ids,
         "required_names": [names[i] for i in ids],
         "assembly_rules": _parse_assembly_rules(cfg["assembly_rules"],

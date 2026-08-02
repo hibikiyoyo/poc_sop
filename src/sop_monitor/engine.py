@@ -5,9 +5,12 @@ frames with confidence >= `min_conf` (see config.load_sop_rules). Assembly
 rules add a spatial check on top: an "inner" component must overlap its
 "outer" component by at least `min_overlap` of the inner box's area in
 `min_frames` frames (e.g. the main welding plate sitting in the copper).
-Works with oriented-bounding-box (OBB) models and regular axis-aligned
-models alike: OBB results get the custom polygon drawing below, anything
-else falls back to Ultralytics' own `result.plot()`.
+`imgsz` sets the inference resolution and `frame_stride` analyzes only every
+Nth frame — skipped frames are written with the previous result's boxes, and
+`min_frames` counts analyzed frames. Works with oriented-bounding-box (OBB)
+models and regular axis-aligned models alike: OBB results get the custom
+polygon drawing below, anything else falls back to Ultralytics' own
+`result.plot()`.
 """
 
 from __future__ import annotations
@@ -212,7 +215,9 @@ def _draw_obb(frame: np.ndarray, result) -> np.ndarray:
 def _annotate(frame: np.ndarray, result) -> np.ndarray:
     if getattr(result, "obb", None) is not None:
         return _draw_obb(frame, result)
-    return result.plot()
+    # img= draws onto the current frame — with frame_stride > 1 the result may
+    # come from an earlier frame, and plain plot() would return that old frame.
+    return result.plot(img=frame)
 
 
 def _open_video_writer(out_path: Path, fps: float, w: int, h: int):
@@ -318,36 +323,42 @@ def process_video_job(job_id: str, src_path: Path) -> None:
         by_id = {c["id"]: c for c in job["classes"]}
         rule_states = job.get("rules") or []
         min_frames = sop["min_frames"]
+        imgsz = int(sop.get("imgsz", 640))
+        frame_stride = max(1, int(sop.get("frame_stride", 1)))
         frame_idx = 0
+        r = None
         t0 = time.time()
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
-            with model_lock:
-                r = model.predict(frame, imgsz=640, conf=sop["min_conf"], iou=0.45,
-                                  device=device, verbose=False)[0]
+            if frame_idx % frame_stride == 0:
+                with model_lock:
+                    r = model.predict(frame, imgsz=imgsz, conf=sop["min_conf"],
+                                      iou=0.45, device=device, verbose=False)[0]
 
-            hits = _result_hits(r)
-            if hits is not None:
-                cls, conf, polys = hits
-                for cid in set(cls.tolist()):
-                    st = by_id.get(cid)
-                    if st is None:
-                        continue
-                    st["frames_seen"] += 1
-                    st["best_conf"] = round(max(st["best_conf"],
-                                                float(conf[cls == cid].max())), 3)
-                    if st["first_seen_frame"] is None:
-                        st["first_seen_frame"] = frame_idx
-                        st["first_seen_sec"] = round(frame_idx / fps, 2)
-                    if not st["detected"] and st["frames_seen"] >= min_frames:
-                        st["detected"] = True
-                if rule_states:
-                    _update_rules(rule_states, cls, polys, frame_idx, fps,
-                                  min_frames)
+                hits = _result_hits(r)
+                if hits is not None:
+                    cls, conf, polys = hits
+                    for cid in set(cls.tolist()):
+                        st = by_id.get(cid)
+                        if st is None:
+                            continue
+                        st["frames_seen"] += 1
+                        st["best_conf"] = round(max(st["best_conf"],
+                                                    float(conf[cls == cid].max())), 3)
+                        if st["first_seen_frame"] is None:
+                            st["first_seen_frame"] = frame_idx
+                            st["first_seen_sec"] = round(frame_idx / fps, 2)
+                        if not st["detected"] and st["frames_seen"] >= min_frames:
+                            st["detected"] = True
+                    if rule_states:
+                        _update_rules(rule_states, cls, polys, frame_idx, fps,
+                                      min_frames)
 
-            frame = _annotate(frame, r)
+            # skipped frames reuse the last result so the output stays smooth
+            if r is not None:
+                frame = _annotate(frame, r)
             writer.write(frame)
             frame_idx += 1
             if total > 0 and frame_idx % 5 == 0:
